@@ -89,10 +89,17 @@ const Deposit = ({ isOpen, onClose }) => {
           );
         }
 
+        // Approve a much larger amount (e.g., 1 million USDC) to avoid future approvals
+        const maxApprovalAmount = ethers.parseUnits("1000000", 6); // 1 million USDC
+        console.log(
+          "Approving amount:",
+          ethers.formatUnits(maxApprovalAmount, 6)
+        );
+
         // Then approve the new amount
         const approveTx = await usdtContract.approve(
           CONTRACT_ADDRESS,
-          amountInWei
+          maxApprovalAmount
         );
         setTxStatus({
           status: "confirming",
@@ -124,8 +131,14 @@ const Deposit = ({ isOpen, onClose }) => {
           CONTRACT_ADDRESS
         );
         console.log("New allowance:", ethers.formatUnits(newAllowance, 6));
+        console.log("Required amount:", ethers.formatUnits(amountInWei, 6));
 
         if (newAllowance < amountInWei) {
+          console.error("Approval verification failed:", {
+            newAllowance: ethers.formatUnits(newAllowance, 6),
+            requiredAmount: ethers.formatUnits(amountInWei, 6),
+            difference: ethers.formatUnits(amountInWei.sub(newAllowance), 6),
+          });
           throw new Error(
             "Approval failed: New allowance is less than deposit amount"
           );
