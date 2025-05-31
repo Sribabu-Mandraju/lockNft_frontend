@@ -1,13 +1,10 @@
 // src/components/Header.jsx
 import React, { useState, useRef } from "react";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { injected, walletConnect, coinbaseWallet } from "wagmi/connectors";
 import { IoMdMenu } from "react-icons/io";
+import { useWallet } from "../context/WalletContext";
 
-const Header = ({toggleSidebar}) => {
-  const { address, isConnected } = useAccount();
-  const { connect } = useConnect();
-  const { disconnect } = useDisconnect();
+const Header = ({ toggleSidebar }) => {
+  const { account, isConnected, connectWallet, disconnectWallet } = useWallet();
 
   // State to control modal visibility
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -28,7 +25,6 @@ const Header = ({toggleSidebar}) => {
   const handleScroll = () => {
     if (termsRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = termsRef.current;
-      // Check if user has scrolled to the bottom (with a small buffer)
       if (scrollTop + clientHeight >= scrollHeight - 5) {
         setIsScrolledToEnd(true);
       }
@@ -38,7 +34,7 @@ const Header = ({toggleSidebar}) => {
   // Function to handle "AGREE" button click
   const handleAgree = () => {
     if (isScrolledToEnd) {
-      setHasAgreed(true); // Show wallet options after agreeing
+      setHasAgreed(true);
     }
   };
 
@@ -49,21 +45,22 @@ const Header = ({toggleSidebar}) => {
         <div className="flex items-center md:px-[40px]">
           <div className="text-white text-xl font-bold tracking-wider">
             <img src="logo.png" alt="" className="h-[22px] w-[87px] hidden" />
-             <button
-      className="md:hidden text-white mr-2"
-      onClick={toggleSidebar}
-    >
-     <span className="text-2xl"><IoMdMenu /></span> 
-
-    </button>
+            <button
+              className="md:hidden text-white mr-2"
+              onClick={toggleSidebar}
+            >
+              <span className="text-2xl">
+                <IoMdMenu />
+              </span>
+            </button>
           </div>
         </div>
         {isConnected ? (
           <button
             className="px-[40px] py-2 bg-transparent text-white text-[12px] font-medium rounded hover:border-gray-500 transition-colors"
-            onClick={() => disconnect()}
+            onClick={disconnectWallet}
           >
-            {truncateAddress(address)}
+            {truncateAddress(account)}
           </button>
         ) : (
           <button
@@ -146,11 +143,7 @@ const Header = ({toggleSidebar}) => {
               <div className="grid grid-cols-3 gap-6 mb-4">
                 <button
                   onClick={() => {
-                    connect({
-                      connector: injected({
-                        target: "metaMask",
-                      }),
-                    });
+                    connectWallet("metamask");
                     setIsModalOpen(false);
                   }}
                   className="flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-all transform hover:scale-105 shadow-lg"
@@ -164,7 +157,7 @@ const Header = ({toggleSidebar}) => {
                 </button>
                 <button
                   onClick={() => {
-                    connect({ connector: coinbaseWallet() });
+                    connectWallet("coinbase");
                     setIsModalOpen(false);
                   }}
                   className="flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-all transform hover:scale-105 shadow-lg"
@@ -178,12 +171,8 @@ const Header = ({toggleSidebar}) => {
                 </button>
                 <button
                   onClick={() => {
-                    connect({
-                      connector: walletConnect({
-                        projectId: "YOUR_WALLET_CONNECT_PROJECT_ID",
-                      }),
-                    });
-                    setIsModalOpen(false);
+                    // Implement WalletConnect logic here
+                    alert("WalletConnect integration coming soon!");
                   }}
                   className="flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-all transform hover:scale-105 shadow-lg"
                 >

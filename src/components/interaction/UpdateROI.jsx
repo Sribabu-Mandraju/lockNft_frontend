@@ -1,119 +1,68 @@
-import { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { ethers } from "ethers";
+import TimeLockNFTStakingABI from "../../abis/LockNft_abi.json";
 import { toast } from "react-toastify";
-import LockNftAbi from "../../abis/LockNft_abi.json";
+import { useWallet } from "../../context/WalletContext";
+import { FaSpinner } from "react-icons/fa";
 
 const CONTRACT_ADDRESS = import.meta.env.VITE_LOCK_NFT;
 
-function UpdateROI({ isOpen, onClose }) {
+const UpdateROI = ({ isOpen, onClose }) => {
+  const { account, signer } = useWallet();
   const [roi3m, setRoi3m] = useState("");
   const [roi6m, setRoi6m] = useState("");
   const [roi12m, setRoi12m] = useState("");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [provider, setProvider] = useState(null);
-  const [signer, setSigner] = useState(null);
-  const [account, setAccount] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [txStatus, setTxStatus] = useState({
-    status: "", // 'pending', 'confirming', 'success', 'error'
+    status: "",
     message: "",
     hash: "",
   });
 
-  // Initialize ethers provider and contract
-  useEffect(() => {
-    const initEthers = async () => {
-      if (window.ethereum) {
-        try {
-          const accounts = await window.ethereum.request({
-            method: "eth_requestAccounts",
-          });
-          setAccount(accounts[0]);
-
-          const provider = new ethers.providers.Web3Provider(window.ethereum);
-          setProvider(provider);
-
-          const signer = provider.getSigner();
-          setSigner(signer);
-
-          // Listen for account changes
-          window.ethereum.on("accountsChanged", (accounts) => {
-            setAccount(accounts[0]);
-          });
-
-          // Listen for chain changes
-          window.ethereum.on("chainChanged", () => {
-            window.location.reload();
-          });
-        } catch (error) {
-          console.error("Error initializing ethers:", error);
-          toast.error("Failed to connect to wallet");
-        }
-      } else {
-        toast.error("Please install MetaMask!");
-      }
-    };
-
-    initEthers();
-
-    return () => {
-      if (window.ethereum) {
-        window.ethereum.removeAllListeners("accountsChanged");
-        window.ethereum.removeAllListeners("chainChanged");
-      }
-    };
-  }, []);
-
-  const handleUpdateROI = async () => {
-    if (!account) {
+  const handleUpdateROIs = async () => {
+    if (!account || !signer) {
       toast.error("Please connect your wallet first.");
       return;
     }
 
-    // Validate ROI inputs
-    const roi3mValue = Number(roi3m);
-    const roi6mValue = Number(roi6m);
-    const roi12mValue = Number(roi12m);
-
-    if (isNaN(roi3mValue) || isNaN(roi6mValue) || isNaN(roi12mValue)) {
-      toast.error("Please enter valid ROI values");
-      return;
-    }
-
-    if (roi3mValue < 0 || roi6mValue < 0 || roi12mValue < 0) {
-      toast.error("ROI values cannot be negative");
+    if (
+      !roi3m ||
+      !roi6m ||
+      !roi12m ||
+      isNaN(roi3m) ||
+      isNaN(roi6m) ||
+      isNaN(roi12m)
+    ) {
+      toast.error("Please enter valid ROI percentages.");
       return;
     }
 
     try {
-      setIsProcessing(true);
+      setIsSubmitting(true);
+      const stakingContract = new ethers.Contract(
+        CONTRACT_ADDRESS,
+        TimeLockNFTStakingABI,
+        signer
+      );
+
       setTxStatus({
         status: "pending",
         message: "Preparing transaction...",
         hash: "",
       });
 
-      // Create contract instance
-      const contract = new ethers.Contract(
-        CONTRACT_ADDRESS,
-        LockNftAbi,
-        signer
-      );
+      // Convert ROIs to basis points (1% = 100 basis points)
+      const roi3mBps = Math.round(parseFloat(roi3m) * 100);
+      const roi6mBps = Math.round(parseFloat(roi6m) * 100);
+      const roi12mBps = Math.round(parseFloat(roi12m) * 100);
 
-      // Convert ROI values to basis points (multiply by 100)
-      const roi3mBps = Math.floor(roi3mValue * 100);
-      const roi6mBps = Math.floor(roi6mValue * 100);
-      const roi12mBps = Math.floor(roi12mValue * 100);
-
-      // Send transaction
-      const tx = await contract.setROIs(roi3mBps, roi6mBps, roi12mBps);
-
+      const tx = await stakingContract.setROIs(roi3mBps, roi6mBps, roi12mBps);
       setTxStatus({
         status: "confirming",
         message: "Transaction submitted! Waiting for confirmation...",
         hash: tx.hash,
       });
 
-      // Show transaction hash in toast
       toast.info(
         <div>
           <p>Transaction submitted!</p>
@@ -128,32 +77,17 @@ function UpdateROI({ isOpen, onClose }) {
         </div>
       );
 
-      // Wait for transaction to be mined
-      const receipt = await tx.wait();
-
-      if (receipt.status === 1) {
-        setTxStatus({
-          status: "success",
-          message: "ROI values updated successfully!",
-          hash: tx.hash,
-        });
-        toast.success("ROI values updated successfully!");
-        setRoi3m("");
-        setRoi6m("");
-        setRoi12m("");
-      } else {
-        setTxStatus({
-          status: "error",
-          message: "Transaction failed!",
-          hash: tx.hash,
-        });
-        toast.error("Transaction failed!");
-      }
+      await tx.wait();
+      setTxStatus({
+        status: "success",
+        message: "ROIs updated successfully!",
+        hash: tx.hash,
+      });
+      toast.success("ROIs updated successfully!");
+      onClose();
     } catch (err) {
-      console.error("Error updating ROI values:", err);
-
-      // Handle specific error cases
-      let errorMessage = "Failed to update ROI values";
+      console.error("Error updating ROIs:", err);
+      let errorMessage = "Failed to update ROIs";
       if (err.code === 4001) {
         errorMessage = "Transaction rejected by user";
       } else if (err.code === -32603) {
@@ -163,8 +97,6 @@ function UpdateROI({ isOpen, onClose }) {
         errorMessage = "Transaction rejected by user";
       } else if (err.message.includes("insufficient funds")) {
         errorMessage = "Insufficient funds for gas";
-      } else if (err.message.includes("Ownable: caller is not the owner")) {
-        errorMessage = "Only contract owner can update ROI values";
       }
 
       setTxStatus({
@@ -174,156 +106,136 @@ function UpdateROI({ isOpen, onClose }) {
       });
       toast.error(errorMessage);
     } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Get status icon based on transaction status
-  const getStatusIcon = () => {
-    switch (txStatus.status) {
-      case "pending":
-      case "confirming":
-        return (
-          <div className="w-4 h-4 mr-2 animate-spin">
-            <img src="spinner.png" alt="Spinner" className="w-full h-full" />
-          </div>
-        );
-      case "success":
-        return (
-          <div className="w-4 h-4 mr-2 bg-green-500 rounded-full flex items-center justify-center">
-            <span className="text-white text-xs">✓</span>
-          </div>
-        );
-      case "error":
-        return (
-          <div className="w-4 h-4 mr-2 bg-red-500 rounded-full flex items-center justify-center">
-            <span className="text-white text-xs">!</span>
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
-
-  // Get status color based on transaction status
-  const getStatusColor = () => {
-    switch (txStatus.status) {
-      case "pending":
-      case "confirming":
-        return "text-yellow-400";
-      case "success":
-        return "text-green-400";
-      case "error":
-        return "text-red-400";
-      default:
-        return "text-gray-400";
+      setIsSubmitting(false);
     }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-80 z-50">
-      <div className="bg-gradient-to-br from-gray-900 to-black border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto shadow-2xl transform transition-all duration-300 scale-95">
-        <h2 className="text-white text-xl font-bold mb-4">Update ROI Values</h2>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-gray-900 rounded-lg p-6 w-full max-w-md">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-semibold text-white">Update ROIs</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-white transition-colors"
+          >
+            ✕
+          </button>
+        </div>
 
-        {/* ROI Inputs */}
-        <div className="space-y-4 mb-6">
+        <div className="space-y-4">
           <div>
-            <label className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-2 block">
+            <label
+              htmlFor="roi3m"
+              className="block text-sm font-medium text-gray-400 mb-2"
+            >
               3 Months ROI (%)
             </label>
             <input
               type="number"
+              id="roi3m"
               value={roi3m}
               onChange={(e) => setRoi3m(e.target.value)}
               placeholder="Enter ROI percentage"
-              className="w-full p-3 bg-gray-800 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-purple-600 transition-colors"
-              disabled={isProcessing}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+              disabled={isSubmitting}
             />
           </div>
 
           <div>
-            <label className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-2 block">
+            <label
+              htmlFor="roi6m"
+              className="block text-sm font-medium text-gray-400 mb-2"
+            >
               6 Months ROI (%)
             </label>
             <input
               type="number"
+              id="roi6m"
               value={roi6m}
               onChange={(e) => setRoi6m(e.target.value)}
               placeholder="Enter ROI percentage"
-              className="w-full p-3 bg-gray-800 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-purple-600 transition-colors"
-              disabled={isProcessing}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+              disabled={isSubmitting}
             />
           </div>
 
           <div>
-            <label className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-2 block">
+            <label
+              htmlFor="roi12m"
+              className="block text-sm font-medium text-gray-400 mb-2"
+            >
               12 Months ROI (%)
             </label>
             <input
               type="number"
+              id="roi12m"
               value={roi12m}
               onChange={(e) => setRoi12m(e.target.value)}
               placeholder="Enter ROI percentage"
-              className="w-full p-3 bg-gray-800 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-purple-600 transition-colors"
-              disabled={isProcessing}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+              disabled={isSubmitting}
             />
           </div>
-        </div>
 
-        {/* Transaction Status */}
-        {txStatus.status && (
-          <div className={`mb-4 ${getStatusColor()} text-sm flex items-center`}>
-            {getStatusIcon()}
-            <div className="flex flex-col">
-              <span>{txStatus.message}</span>
-              {txStatus.hash && (
-                <a
-                  href={`https://etherscan.io/tx/${txStatus.hash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:text-blue-300 text-xs mt-1"
-                >
-                  View on Etherscan
-                </a>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Buttons */}
-        <div className="flex flex-col space-y-3">
           <button
-            onClick={handleUpdateROI}
-            disabled={isProcessing || !roi3m || !roi6m || !roi12m}
-            className={`p-3 text-sm font-medium rounded bg-gradient-to-r from-purple-600 to-purple-800 text-white hover:from-purple-700 hover:to-purple-900 transition-colors ${
-              (isProcessing || !roi3m || !roi6m || !roi12m) &&
-              "opacity-50 cursor-not-allowed"
+            onClick={handleUpdateROIs}
+            disabled={isSubmitting || !roi3m || !roi6m || !roi12m}
+            className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
+              isSubmitting || !roi3m || !roi6m || !roi12m
+                ? "bg-gray-700 text-gray-400 cursor-not-allowed"
+                : "bg-purple-600 text-white hover:bg-purple-700"
             }`}
           >
-            {isProcessing ? (
-              <span className="flex items-center justify-center">
-                <div className="w-5 h-5 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                {txStatus.message || "Processing..."}
-              </span>
+            {isSubmitting ? (
+              <div className="flex items-center justify-center">
+                <FaSpinner className="animate-spin mr-2" />
+                Processing...
+              </div>
             ) : (
-              "Update ROI Values"
+              "Update ROIs"
             )}
           </button>
-          <button
-            onClick={onClose}
-            disabled={isProcessing}
-            className={`p-3 text-sm font-medium rounded bg-transparent text-gray-400 hover:bg-gray-800 transition-colors ${
-              isProcessing && "opacity-50 cursor-not-allowed"
-            }`}
-          >
-            Cancel
-          </button>
+
+          {txStatus.status && (
+            <div
+              className={`mt-4 ${
+                txStatus.status === "error"
+                  ? "text-red-500"
+                  : txStatus.status === "success"
+                  ? "text-green-500"
+                  : "text-blue-400"
+              } text-sm flex items-center`}
+            >
+              {txStatus.status === "pending" ||
+              txStatus.status === "confirming" ? (
+                <FaSpinner className="animate-spin mr-2" />
+              ) : txStatus.status === "success" ? (
+                <span className="mr-2">✓</span>
+              ) : (
+                <span className="mr-2">✗</span>
+              )}
+              <div className="flex flex-col">
+                <span>{txStatus.message}</span>
+                {txStatus.hash && (
+                  <a
+                    href={`https://etherscan.io/tx/${txStatus.hash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300 text-xs mt-1"
+                  >
+                    View on Etherscan
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
-}
+};
 
 export default UpdateROI;

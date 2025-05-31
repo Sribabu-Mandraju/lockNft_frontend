@@ -9,6 +9,7 @@ import Overview from "./pages/Overview";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
 import ConnectWallet from "./components/ConnectButton";
+import { WalletProvider } from "./context/WalletContext";
 
 const App = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -17,7 +18,7 @@ const App = () => {
   const closeSidebar = () => setSidebarOpen(false);
 
   return (
-    <>
+    <WalletProvider>
       <BrowserRouter>
         <div className="flex">
           <Sidebar isOpen={sidebarOpen} closeSidebar={closeSidebar} />
@@ -38,7 +39,7 @@ const App = () => {
           </div>
         </div>
       </BrowserRouter>
-    </>
+    </WalletProvider>
   );
 };
 
