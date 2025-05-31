@@ -48,6 +48,9 @@ const Deposit = ({ isOpen, onClose }) => {
 
       // Check USDT balance
       const balance = await usdtContract.balanceOf(account);
+      console.log("USDC Balance:", ethers.formatUnits(balance, 6));
+      console.log("Amount to deposit:", ethers.formatUnits(amountInWei, 6));
+
       if (balance < amountInWei) {
         toast.error(
           "Insufficient USDC balance. Please check your balance and try again."
@@ -56,39 +59,80 @@ const Deposit = ({ isOpen, onClose }) => {
         return;
       }
 
-      // First approve USDC spending
-      setTxStatus({
-        status: "pending",
-        message: "Approving USDC spending...",
-        hash: "",
-      });
-
-      const approveTx = await usdtContract.approve(
-        CONTRACT_ADDRESS,
-        amountInWei
+      // Check current allowance
+      const currentAllowance = await usdtContract.allowance(
+        account,
+        CONTRACT_ADDRESS
       );
-      setTxStatus({
-        status: "confirming",
-        message: "Approval transaction submitted! Waiting for confirmation...",
-        hash: approveTx.hash,
-      });
-
-      toast.info(
-        <div>
-          <p>Approval transaction submitted!</p>
-          <a
-            href={`https://etherscan.io/tx/${approveTx.hash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 hover:text-blue-300"
-          >
-            View on Etherscan
-          </a>
-        </div>
+      console.log(
+        "Current allowance:",
+        ethers.formatUnits(currentAllowance, 6)
       );
 
-      await approveTx.wait();
-      toast.success("Approval successful! Proceeding with deposit...");
+      // If current allowance is less than amount, we need to approve
+      if (currentAllowance < amountInWei) {
+        setTxStatus({
+          status: "pending",
+          message: "Approving USDC spending...",
+          hash: "",
+        });
+
+        // First reset allowance to 0 to avoid any issues
+        try {
+          const resetTx = await usdtContract.approve(CONTRACT_ADDRESS, 0);
+          await resetTx.wait();
+          console.log("Reset allowance to 0");
+        } catch (resetErr) {
+          console.log(
+            "Reset allowance failed, continuing with new approval:",
+            resetErr
+          );
+        }
+
+        // Then approve the new amount
+        const approveTx = await usdtContract.approve(
+          CONTRACT_ADDRESS,
+          amountInWei
+        );
+        setTxStatus({
+          status: "confirming",
+          message:
+            "Approval transaction submitted! Waiting for confirmation...",
+          hash: approveTx.hash,
+        });
+
+        toast.info(
+          <div>
+            <p>Approval transaction submitted!</p>
+            <a
+              href={`https://sepolia.basescan.org/tx/${approveTx.hash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300"
+            >
+              View on BaseScan
+            </a>
+          </div>
+        );
+
+        const approveReceipt = await approveTx.wait();
+        console.log("Approval receipt:", approveReceipt);
+
+        // Verify allowance after approval
+        const newAllowance = await usdtContract.allowance(
+          account,
+          CONTRACT_ADDRESS
+        );
+        console.log("New allowance:", ethers.formatUnits(newAllowance, 6));
+
+        if (newAllowance < amountInWei) {
+          throw new Error(
+            "Approval failed: New allowance is less than deposit amount"
+          );
+        }
+
+        toast.success("Approval successful! Proceeding with deposit...");
+      }
 
       // Then deposit
       setTxStatus({
@@ -96,6 +140,24 @@ const Deposit = ({ isOpen, onClose }) => {
         message: "Preparing deposit transaction...",
         hash: "",
       });
+
+      // Verify contract address and USDT address
+      console.log("Staking Contract Address:", CONTRACT_ADDRESS);
+      console.log("USDT Contract Address:", USDT_ADDRESS);
+
+      // Double check allowance before deposit
+      const finalAllowance = await usdtContract.allowance(
+        account,
+        CONTRACT_ADDRESS
+      );
+      console.log(
+        "Final allowance before deposit:",
+        ethers.formatUnits(finalAllowance, 6)
+      );
+
+      if (finalAllowance < amountInWei) {
+        throw new Error("Insufficient allowance for deposit");
+      }
 
       const depositTx = await stakingContract.deposit(
         amountInWei,
@@ -111,17 +173,19 @@ const Deposit = ({ isOpen, onClose }) => {
         <div>
           <p>Deposit transaction submitted!</p>
           <a
-            href={`https://etherscan.io/tx/${depositTx.hash}`}
+            href={`https://sepolia.basescan.org/tx/${depositTx.hash}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-400 hover:text-blue-300"
           >
-            View on Etherscan
+            View on BaseScan
           </a>
         </div>
       );
 
-      await depositTx.wait();
+      const depositReceipt = await depositTx.wait();
+      console.log("Deposit receipt:", depositReceipt);
+
       setTxStatus({
         status: "success",
         message: "Deposit successful!",
@@ -133,6 +197,7 @@ const Deposit = ({ isOpen, onClose }) => {
     } catch (err) {
       console.error("Error in deposit process:", err);
       let errorMessage = "Failed to complete deposit process";
+
       if (err.code === 4001) {
         errorMessage = "Transaction rejected by user";
       } else if (err.code === -32603) {
@@ -142,6 +207,11 @@ const Deposit = ({ isOpen, onClose }) => {
         errorMessage = "Transaction rejected by user";
       } else if (err.message.includes("insufficient funds")) {
         errorMessage = "Insufficient funds for gas";
+      } else if (err.message.includes("execution reverted")) {
+        errorMessage =
+          "Transaction reverted. Please check your USDC balance and allowance.";
+      } else if (err.message.includes("Approval failed")) {
+        errorMessage = err.message;
       }
 
       setTxStatus({
